@@ -38,18 +38,26 @@ body { min-height: 100vh; }
   box-shadow: 0 20px 35px rgba(8, 15, 28, 0.35), inset 0 1px 0 rgba(148, 163, 184, 0.08);
   backdrop-filter: blur(10px);
 }
-.camera-card { position: relative; overflow: hidden; min-height: 420px; }
-.video, .canvas-overlay { width: 100%; height: 100%; min-height: 340px; border-radius: 16px; object-fit: cover; background: #020617; }
+.camera-card { position: relative; overflow: hidden; min-height: 420px; display: flex; align-items: center; justify-content: center; }
+.video, .canvas-overlay { width: 100%; height: 100%; min-height: 340px; border-radius: 16px; object-fit: contain; object-position: center; background: #020617; }
 .canvas-overlay { position: absolute; inset: 14px; width: auto; height: auto; }
-.badge-row { position: absolute; bottom: 18px; left: 18px; display: flex; gap: 8px; z-index: 2; }
+.badge-row { position: absolute; bottom: 18px; left: 18px; display: flex; gap: 8px; z-index: 2; flex-wrap: wrap; }
 .chip { background: rgba(15, 23, 42, 0.92); border: 1px solid rgba(125, 211, 252, 0.35); border-radius: 999px; padding: 6px 10px; font-size: .9rem; box-shadow: 0 8px 18px rgba(8, 15, 28, 0.25); }
 .chip.ok { background: rgba(22, 163, 74, 0.18); border-color: rgba(74, 222, 128, 0.55); }
 
 .info-card h2 { margin-top: 0; color: #bfdbfe; }
 .info-card p { color: #e5eefb; line-height: 1.4; }
-.phrase-box { margin-top: 14px; padding: 12px; border-radius: 14px; background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.98)); border: 1px solid rgba(148, 163, 184, 0.15); box-shadow: inset 0 1px 0 rgba(125, 211, 252, 0.08); }
-.phrase-box span { display: block; font-size: .88rem; color: #bfdbfe; text-transform: uppercase; letter-spacing: .18rem; }
-.phrase-box strong { display: block; margin-top: 6px; font-size: 1.4rem; color: #fff; }
+.phrase-box, .suggestion-box { margin-top: 14px; padding: 12px; border-radius: 14px; background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.98)); border: 1px solid rgba(148, 163, 184, 0.15); box-shadow: inset 0 1px 0 rgba(125, 211, 252, 0.08); }
+.phrase-box span, .suggestion-box span { display: block; font-size: .88rem; color: #bfdbfe; text-transform: uppercase; letter-spacing: .18rem; }
+.phrase-display { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.letter-tile { min-width: 34px; padding: 8px 10px; text-align: center; border-radius: 10px; background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(148, 163, 184, 0.24); font-weight: 700; color: #f8fafc; }
+.letter-tile.correct { background: rgba(22, 163, 74, 0.22); border-color: rgba(74, 222, 128, 0.55); color: #dcfce7; }
+.letter-tile.space { border-style: dashed; min-width: 12px; background: transparent; border-color: transparent; }
+.suggestion-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.suggestion-chip { padding: 8px 12px; border-radius: 999px; background: rgba(15, 23, 42, 0.92); border: 1px solid rgba(125, 211, 252, 0.28); color: #f8fafc; font-weight: 700; }
+.suggestion-chip.active { border-color: #fbbf24; box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.2); }
+.suggestion-chip.correct { background: rgba(22, 163, 74, 0.22); border-color: rgba(74, 222, 128, 0.55); color: #dcfce7; }
+.status-line { color: #fef3c7; font-weight: 600; }
 button {
   margin-top: 12px; border-radius: 12px; border: 1px solid #38bdf8; background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 55%, #8b5cf6 100%);
   color: #eff6ff; padding: 10px 14px; font-weight: 700; cursor: pointer; box-shadow: 0 10px 18px rgba(56, 189, 248, 0.18);
@@ -58,4 +66,27 @@ button {
 button:hover { transform: translateY(-1px); box-shadow: 0 14px 24px rgba(129, 140, 248, 0.24); }
 small { display: block; margin-top: 10px; color: #bfdbfe; font-size: .88rem; }
 
-@media (max-width: 980px) { .board { grid-template-columns: 1fr; } }
+@media (max-width: 980px) {
+  .app-shell { padding: 14px; gap: 14px; }
+  .panel { padding: 14px; border-radius: 20px; }
+  .board { grid-template-columns: 1fr; }
+  .camera-card { min-height: 320px; }
+  .video, .canvas-overlay { min-height: 260px; }
+  .hero h1 { font-size: 1.8rem; }
+  .lead { font-size: .96rem; }
+  button { width: 100%; padding: 12px 14px; }
+}
+
+@media (max-width: 640px) {
+  .app-shell { padding: 10px; }
+  .hero h1 { font-size: 1.55rem; }
+  .camera-card, .info-card { padding: 10px; }
+  .camera-card { min-height: 260px; }
+  .video, .canvas-overlay { min-height: 220px; }
+  .badge-row { left: 10px; bottom: 10px; }
+  .chip { font-size: .8rem; padding: 6px 8px; }
+  .phrase-display { gap: 6px; }
+  .letter-tile { min-width: 28px; padding: 7px 8px; font-size: .95rem; }
+  .suggestion-row { gap: 6px; }
+  .suggestion-chip { padding: 7px 10px; font-size: .9rem; }
+}
