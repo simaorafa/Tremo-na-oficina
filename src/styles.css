@@ -15,6 +15,8 @@ body { min-height: 100vh; }
   padding: 24px;
   display: grid;
   gap: 18px;
+  max-width: 1200px;
+  margin: 0 auto;
 }
 
 .panel {
@@ -25,11 +27,12 @@ body { min-height: 100vh; }
   padding: 20px;
 }
 
-.hero h1 { font-size: 2.3rem; margin: 0 0 8px; }
+.hero { text-align: left; }
+.hero h1 { font-size: clamp(1.7rem, 3vw, 2.3rem); margin: 0 0 8px; }
 .eyebrow { text-transform: uppercase; letter-spacing: 0.35rem; color: #7dd3fc; font-size: .82rem; }
-.lead { color: #dbeafe; max-width: 700px; }
+.lead { color: #dbeafe; max-width: 700px; line-height: 1.5; }
 
-.board { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 18px; }
+.board { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr); gap: 18px; align-items: start; }
 .camera-card, .info-card {
   border-radius: 22px;
   background: linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(9, 14, 28, 0.96));
@@ -38,7 +41,7 @@ body { min-height: 100vh; }
   box-shadow: 0 20px 35px rgba(8, 15, 28, 0.35), inset 0 1px 0 rgba(148, 163, 184, 0.08);
   backdrop-filter: blur(10px);
 }
-.camera-card { position: relative; overflow: hidden; min-height: 420px; display: flex; align-items: center; justify-content: center; }
+.camera-card { position: relative; overflow: hidden; min-height: 420px; display: flex; align-items: center; justify-content: center; aspect-ratio: 4 / 3; }
 .video, .canvas-overlay { width: 100%; height: 100%; min-height: 340px; border-radius: 16px; object-fit: contain; object-position: center; background: #020617; }
 .canvas-overlay { position: absolute; inset: 14px; width: auto; height: auto; }
 .badge-row { position: absolute; bottom: 18px; left: 18px; display: flex; gap: 8px; z-index: 2; flex-wrap: wrap; }
@@ -47,17 +50,20 @@ body { min-height: 100vh; }
 
 .info-card h2 { margin-top: 0; color: #bfdbfe; }
 .info-card p { color: #e5eefb; line-height: 1.4; }
-.phrase-box, .suggestion-box { margin-top: 14px; padding: 12px; border-radius: 14px; background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.98)); border: 1px solid rgba(148, 163, 184, 0.15); box-shadow: inset 0 1px 0 rgba(125, 211, 252, 0.08); }
-.phrase-box span, .suggestion-box span { display: block; font-size: .88rem; color: #bfdbfe; text-transform: uppercase; letter-spacing: .18rem; }
-.phrase-display { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.letter-tile { min-width: 34px; padding: 8px 10px; text-align: center; border-radius: 10px; background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(148, 163, 184, 0.24); font-weight: 700; color: #f8fafc; }
+.board-box, .keyboard-box { margin-top: 14px; padding: 12px; border-radius: 14px; background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.98)); border: 1px solid rgba(148, 163, 184, 0.15); box-shadow: inset 0 1px 0 rgba(125, 211, 252, 0.08); }
+.board-box span, .keyboard-box span { display: block; font-size: .88rem; color: #bfdbfe; text-transform: uppercase; letter-spacing: .18rem; }
+.guess-board { display: grid; gap: 8px; margin-top: 10px; }
+.guess-row { display: flex; gap: 8px; }
+.letter-tile { min-width: 38px; padding: 8px 10px; text-align: center; border-radius: 10px; background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(148, 163, 184, 0.24); font-weight: 700; color: #f8fafc; }
 .letter-tile.correct { background: rgba(22, 163, 74, 0.22); border-color: rgba(74, 222, 128, 0.55); color: #dcfce7; }
-.letter-tile.space { border-style: dashed; min-width: 12px; background: transparent; border-color: transparent; }
-.suggestion-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.suggestion-chip { padding: 8px 12px; border-radius: 999px; background: rgba(15, 23, 42, 0.92); border: 1px solid rgba(125, 211, 252, 0.28); color: #f8fafc; font-weight: 700; }
-.suggestion-chip.active { border-color: #fbbf24; box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.2); }
-.suggestion-chip.correct { background: rgba(22, 163, 74, 0.22); border-color: rgba(74, 222, 128, 0.55); color: #dcfce7; }
+.letter-tile.present { background: rgba(250, 204, 21, 0.2); border-color: rgba(250, 204, 21, 0.5); color: #fef3c7; }
+.letter-tile.absent { background: rgba(71, 85, 105, 0.38); border-color: rgba(100, 116, 139, 0.45); color: #e2e8f0; }
+.selected-letter { margin-top: 10px; margin-bottom: 10px; font-size: 2rem; font-weight: 800; color: #fef3c7; text-align: center; }
+.keyboard-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.keyboard-key { padding: 8px 10px; border-radius: 999px; background: rgba(15, 23, 42, 0.92); border: 1px solid rgba(125, 211, 252, 0.28); color: #f8fafc; font-weight: 700; }
+.keyboard-key.active { border-color: #fbbf24; box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.2); }
 .status-line { color: #fef3c7; font-weight: 600; }
+.camera-error { color: #fda4af; font-size: 0.92rem; margin-top: 8px; }
 button {
   margin-top: 12px; border-radius: 12px; border: 1px solid #38bdf8; background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 55%, #8b5cf6 100%);
   color: #eff6ff; padding: 10px 14px; font-weight: 700; cursor: pointer; box-shadow: 0 10px 18px rgba(56, 189, 248, 0.18);
@@ -79,14 +85,17 @@ small { display: block; margin-top: 10px; color: #bfdbfe; font-size: .88rem; }
 
 @media (max-width: 640px) {
   .app-shell { padding: 10px; }
+  .hero { text-align: center; }
   .hero h1 { font-size: 1.55rem; }
   .camera-card, .info-card { padding: 10px; }
-  .camera-card { min-height: 260px; }
-  .video, .canvas-overlay { min-height: 220px; }
-  .badge-row { left: 10px; bottom: 10px; }
+  .camera-card { min-height: 220px; aspect-ratio: 1 / 1; }
+  .video, .canvas-overlay { min-height: 190px; }
+  .badge-row { position: static; margin-top: 10px; justify-content: center; }
   .chip { font-size: .8rem; padding: 6px 8px; }
-  .phrase-display { gap: 6px; }
-  .letter-tile { min-width: 28px; padding: 7px 8px; font-size: .95rem; }
-  .suggestion-row { gap: 6px; }
-  .suggestion-chip { padding: 7px 10px; font-size: .9rem; }
+  .guess-row { gap: 6px; justify-content: center; }
+  .letter-tile { flex: 1; max-width: 42px; min-width: 0; padding: 8px 0; font-size: .95rem; }
+  .keyboard-row { gap: 6px; }
+  .keyboard-key { flex: 1 1 calc(50% - 6px); text-align: center; padding: 8px 8px; font-size: .9rem; }
+  .selected-letter { font-size: 1.5rem; }
+  small { font-size: .82rem; }
 }

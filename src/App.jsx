@@ -4,25 +4,14 @@ import { Hands } from '@mediapipe/hands';
 import { Camera } from '@mediapipe/camera_utils';
 import { drawConnectors, drawLandmarks, POSE_CONNECTIONS } from '@mediapipe/drawing_utils';
 
-const PHRASES = [
-  'TREMO NA OFICINA',
-  'MÃO NA PEÇA',
-  'RODA EM MOVIMENTO',
-  'EQUIPE EM AÇÃO'
+const WORD_LENGTH = 5;
+const MAX_ATTEMPTS = 6;
+const WORD_LIST = ['MOTOR', 'CHAVE', 'PARTE', 'MESA', 'RODA', 'FACA', 'PINO', 'LIXO', 'TUBO', 'MOLA'];
+const KEYBOARD_ROWS = [
+  ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'],
+  ['K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T'],
+  ['U', 'V', 'W', 'X', 'Y', 'Z'],
 ];
-
-const POSE_TO_SLOT = {
-  'BRAÇOS ACIMA': 0,
-  'MÃO JUNTA': 1,
-  'ABRAÇO DE PEÇA': 2,
-  'LADO DA OFICINA': 3,
-  'PUNHO': 0,
-  'PONTA': 1,
-  'ABERTA': 2,
-  'MÃO': 3,
-};
-
-const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
 function normalizeLetter(value) {
   return String(value || '')
@@ -72,202 +61,335 @@ function classifyHandGesture(handLandmarks) {
   const handOpen = distance(indexTip, middleTip) > 0.06 && distance(indexTip, pinkyTip) > 0.06;
   const indexUp = indexTip.y < wrist.y - 0.03;
   const thumbUp = thumbTip.y < wrist.y - 0.03;
+  const fingersClosed = indexTip.y > wrist.y + 0.03 && middleTip.y > wrist.y + 0.03 && pinkyTip.y > wrist.y + 0.03;
   const fist = distance(indexTip, thumbTip) < 0.08;
 
+  if (thumbUp && fingersClosed) return 'FIXE';
   if (fist) return 'PUNHO';
   if (indexUp && thumbUp) return 'PONTA';
   if (handOpen) return 'ABERTA';
   return 'MÃO';
 }
 
-function getLetterTargets(phrase) {
-  return phrase.split('').reduce((acc, char, index) => {
-    if (char !== ' ') {
-      acc.push({ char, index });
+function getRandomWord() {
+  return WORD_LIST[Math.floor(Math.random() * WORD_LIST.length)];
+}
+
+function getLetterFromPosition(x, y) {
+  const row = y < 0.33 ? 0 : y < 0.66 ? 1 : 2;
+  const rowLetters = KEYBOARD_ROWS[row] || [];
+  const clampedX = Math.max(0, Math.min(1, x));
+  const column = Math.min(rowLetters.length - 1, Math.max(0, Math.floor(clampedX * rowLetters.length)));
+  return rowLetters[column];
+}
+
+function evaluateGuess(guess, secret) {
+  const guessLetters = normalizeLetter(guess).split('');
+  const secretLetters = normalizeLetter(secret).split('');
+  const result = Array(guessLetters.length).fill('absent');
+  const remaining = { ...secretLetters.reduce((acc, char) => ({ ...acc, [char]: (acc[char] || 0) + 1 }), {}) };
+
+  guessLetters.forEach((letter, index) => {
+    if (letter === secretLetters[index]) {
+      result[index] = 'correct';
+      remaining[letter] -= 1;
     }
-    return acc;
-  }, []);
+  });
+
+  guessLetters.forEach((letter, index) => {
+    if (result[index] === 'correct') return;
+    if (remaining[letter] > 0) {
+      result[index] = 'present';
+      remaining[letter] -= 1;
+    }
+  });
+
+  return result;
 }
 
 export default function App() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
-  const [status, setStatus] = useState('Aguardando câmera...');
+  const [status, setStatus] = useState('A preparar a câmera...');
   const [poseLabel, setPoseLabel] = useState('Posição livre');
-  const [phrase, setPhrase] = useState(PHRASES[0]);
-  const [score, setScore] = useState(0);
-  const [ready, setReady] = useState(false);
+  const [cameraError, setCameraError] = useState('');
+  const [isCameraAvailable, setIsCameraAvailable] = useState(true);
+  const [secretWord, setSecretWord] = useState(getRandomWord());
+  const [guessLetters, setGuessLetters] = useState(Array(WORD_LENGTH).fill(''));
+  const [guesses, setGuesses] = useState([]);
+  const [guessResults, setGuessResults] = useState([]);
+  const [attempts, setAttempts] = useState(0);
   const [currentPosition, setCurrentPosition] = useState(0);
-  const [feedback, setFeedback] = useState('Use a pose para escolher a letra sugerida.');
+  const [selectedLetter, setSelectedLetter] = useState('A');
+  const [feedback, setFeedback] = useState('Mova a mão para escolher a letra e faça um polegar para cima com a outra mão para confirmar.');
+  const [gameStatus, setGameStatus] = useState('playing');
+  const [ready, setReady] = useState(false);
 
-  const letterTargets = useMemo(() => getLetterTargets(phrase), [phrase]);
-  const activeTarget = letterTargets[currentPosition] || null;
-  const completedIndexes = useMemo(
-    () => new Set(letterTargets.slice(0, currentPosition).map(({ index }) => index)),
-    [letterTargets, currentPosition]
-  );
-  const completedLetters = useMemo(
-    () => letterTargets.slice(0, currentPosition).map(({ char }) => char),
-    [letterTargets, currentPosition]
-  );
-
-  const suggestions = useMemo(() => {
-    if (!activeTarget) return [];
-    const targetLetter = normalizeLetter(activeTarget.char);
-    return [targetLetter, ...ALPHABET.filter((letter) => letter !== targetLetter).slice(0, 3)];
-  }, [activeTarget]);
-
-  const activeTargetRef = useRef(activeTarget);
-  const suggestionsRef = useRef(suggestions);
+  const selectedLetterRef = useRef(selectedLetter);
+  const guessLettersRef = useRef(guessLetters);
+  const currentPositionRef = useRef(currentPosition);
+  const attemptsRef = useRef(attempts);
+  const secretWordRef = useRef(secretWord);
+  const gameStatusRef = useRef(gameStatus);
+  const confirmRef = useRef(false);
   const lastPoseRef = useRef(null);
 
   useEffect(() => {
-    activeTargetRef.current = activeTarget;
-  }, [activeTarget]);
+    selectedLetterRef.current = selectedLetter;
+  }, [selectedLetter]);
 
   useEffect(() => {
-    suggestionsRef.current = suggestions;
-  }, [suggestions]);
+    guessLettersRef.current = guessLetters;
+  }, [guessLetters]);
 
   useEffect(() => {
+    currentPositionRef.current = currentPosition;
+  }, [currentPosition]);
+
+  useEffect(() => {
+    attemptsRef.current = attempts;
+  }, [attempts]);
+
+  useEffect(() => {
+    secretWordRef.current = secretWord;
+  }, [secretWord]);
+
+  useEffect(() => {
+    gameStatusRef.current = gameStatus;
+  }, [gameStatus]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let pose = null;
+    let hands = null;
+    let camera = null;
+
     const video = videoRef.current;
     const canvas = canvasRef.current;
 
     if (!video || !canvas) return undefined;
 
-    const pose = new Pose({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
-    });
+    const canUseCamera = typeof window !== 'undefined' && !!navigator.mediaDevices?.getUserMedia && window.isSecureContext !== false;
+    if (!canUseCamera) {
+      setStatus('A câmera não está disponível neste navegador.');
+      setCameraError('Use um navegador compatível com webcam, como Chrome ou Edge.');
+      setIsCameraAvailable(false);
+      setReady(false);
+      return undefined;
+    }
 
-    const hands = new Hands({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
-    });
-
-    pose.setOptions({
-      modelComplexity: 1,
-      smoothLandmarks: true,
-      enableSegmentation: false,
-      smoothSegmentation: false,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5,
-    });
-
-    hands.setOptions({
-      maxNumHands: 2,
-      modelComplexity: 1,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5,
-    });
-
-    pose.onResults((results) => {
-      const width = video.videoWidth || 640;
-      const height = video.videoHeight || 480;
-
-      if (canvas.width !== width || canvas.height !== height) {
-        canvas.width = width;
-        canvas.height = height;
-      }
-
-      const ctx = canvas.getContext('2d');
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
-
-      if (results.poseLandmarks) {
-        drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, {
-          color: '#74f1ff',
-          lineWidth: 3,
-        });
-        drawLandmarks(ctx, results.poseLandmarks, {
-          color: '#ffdf33',
-          lineWidth: 2,
+    const initializeCamera = async () => {
+      try {
+        pose = new Pose({
+          locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
         });
 
-        const label = classifyPose(results.poseLandmarks);
-        setPoseLabel(label);
+        hands = new Hands({
+          locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
+        });
 
-        if (label && label !== lastPoseRef.current) {
-          lastPoseRef.current = label;
-          const slot = POSE_TO_SLOT[label];
-          const selectedLetter = slot !== undefined ? suggestionsRef.current[slot] : undefined;
+        pose.setOptions({
+          modelComplexity: 1,
+          smoothLandmarks: true,
+          enableSegmentation: false,
+          smoothSegmentation: false,
+          minDetectionConfidence: 0.5,
+          minTrackingConfidence: 0.5,
+        });
 
-          const targetLetter = normalizeLetter(activeTargetRef.current?.char);
-          const normalizedSelected = normalizeLetter(selectedLetter);
+        hands.setOptions({
+          maxNumHands: 2,
+          modelComplexity: 1,
+          minDetectionConfidence: 0.5,
+          minTrackingConfidence: 0.5,
+        });
 
-          if (activeTargetRef.current && normalizedSelected === targetLetter) {
-            setCurrentPosition((prev) => prev + 1);
-            setScore((prev) => prev + 1);
-            setFeedback(`Acertou! A letra ${targetLetter} ficou verde.`);
-          } else if (activeTargetRef.current && selectedLetter) {
-            setFeedback(`Essa não foi a letra certa. Tente a pose da letra ${targetLetter}.`);
+        pose.onResults((results) => {
+          try {
+            if (cancelled || !videoRef.current || !canvasRef.current) return;
+
+            const width = video.videoWidth || 640;
+            const height = video.videoHeight || 480;
+
+            if (canvas.width !== width || canvas.height !== height) {
+              canvas.width = width;
+              canvas.height = height;
+            }
+
+            const ctx = canvas.getContext('2d');
+            if (!ctx || !results.image) return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+
+            if (results.poseLandmarks) {
+              drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, {
+                color: '#74f1ff',
+                lineWidth: 3,
+              });
+              drawLandmarks(ctx, results.poseLandmarks, {
+                color: '#ffdf33',
+                lineWidth: 2,
+              });
+
+              const label = classifyPose(results.poseLandmarks);
+              setPoseLabel(label);
+              lastPoseRef.current = label;
+            }
+
+            if (gameStatusRef.current === 'playing' && results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+              const handEntries = (results.multiHandLandmarks || []).map((landmarks, index) => ({
+                landmarks,
+                handedness: results.multiHandedness?.[index]?.label || 'Unknown',
+              }));
+
+              const selectionHand = handEntries.find((entry) => entry.handedness === 'Right') || handEntries[0];
+              if (selectionHand) {
+                const indexTip = selectionHand.landmarks[8];
+                const nextLetter = getLetterFromPosition(indexTip.x, indexTip.y);
+                if (nextLetter !== selectedLetterRef.current) {
+                  setSelectedLetter(nextLetter);
+                }
+              }
+
+              const confirmHand = handEntries.find((entry) => entry.handedness === 'Left') || handEntries.find((entry) => entry.handedness !== (selectionHand?.handedness || 'Unknown'));
+              const confirmGesture = confirmHand ? classifyHandGesture(confirmHand.landmarks) : null;
+              const isConfirming = confirmGesture === 'FIXE';
+
+              if (isConfirming && !confirmRef.current) {
+                confirmRef.current = true;
+
+                const nextGuessLetters = [...guessLettersRef.current];
+                nextGuessLetters[currentPositionRef.current] = normalizeLetter(selectedLetterRef.current);
+                setGuessLetters(nextGuessLetters);
+                guessLettersRef.current = nextGuessLetters;
+
+                const nextPosition = currentPositionRef.current + 1;
+                if (nextPosition >= WORD_LENGTH) {
+                  const submittedGuess = nextGuessLetters.join('');
+                  const result = evaluateGuess(submittedGuess, secretWordRef.current);
+                  const nextAttempts = attemptsRef.current + 1;
+
+                  setGuesses((prev) => [...prev, submittedGuess]);
+                  setGuessResults((prev) => [...prev, result]);
+                  setAttempts(nextAttempts);
+                  attemptsRef.current = nextAttempts;
+
+                  if (submittedGuess === secretWordRef.current) {
+                    setGameStatus('won');
+                    setFeedback(`Parabéns! A palavra ${submittedGuess} estava certa.`);
+                  } else if (nextAttempts >= MAX_ATTEMPTS) {
+                    setGameStatus('lost');
+                    setFeedback(`Não foi desta. A palavra secreta era ${secretWordRef.current}.`);
+                  } else {
+                    setFeedback('Palavra enviada. Continue a tentar a próxima tentativa.');
+                  }
+
+                  setGuessLetters(Array(WORD_LENGTH).fill(''));
+                  guessLettersRef.current = Array(WORD_LENGTH).fill('');
+                  setCurrentPosition(0);
+                  currentPositionRef.current = 0;
+                } else {
+                  setCurrentPosition(nextPosition);
+                  setFeedback(`Letra ${normalizeLetter(selectedLetterRef.current)} registada. Continue.`);
+                }
+              } else if (!isConfirming) {
+                confirmRef.current = false;
+              }
+            }
+
+            if (!cancelled) {
+              setStatus('Câmera ativa e gestos em análise');
+              setReady(true);
+            }
+          } catch (error) {
+            if (!cancelled) {
+              setStatus('Houve um erro na análise da câmera.');
+              setCameraError('Tente recarregar a página ou dar permissão novamente.');
+              setReady(false);
+            }
           }
+        });
+
+        camera = new Camera(video, {
+          onFrame: async () => {
+            if (cancelled) return;
+            await pose.send({ image: video });
+            await hands.send({ image: video });
+          },
+          width: 640,
+          height: 480,
+        });
+
+        await camera.start();
+
+        if (!cancelled) {
+          setStatus('Câmera iniciada. Mova a mão para escolher a letra.');
+          setCameraError('');
+          setIsCameraAvailable(true);
+          setReady(true);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setStatus('Não foi possível abrir a câmera. Permita o acesso e recarregue a página.');
+          setCameraError('Verifique as permissões da webcam e tente novamente.');
+          setIsCameraAvailable(false);
+          setReady(false);
         }
       }
+    };
 
-      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-        const handLabel = classifyHandGesture(results.multiHandLandmarks[0]);
-        if (handLabel) {
-          const slot = POSE_TO_SLOT[handLabel];
-          const selectedLetter = slot !== undefined ? suggestionsRef.current[slot] : undefined;
-          const targetLetter = normalizeLetter(activeTargetRef.current?.char);
-          const normalizedSelected = normalizeLetter(selectedLetter);
-
-          if (activeTargetRef.current && normalizedSelected === targetLetter) {
-            setCurrentPosition((prev) => prev + 1);
-            setScore((prev) => prev + 1);
-            setFeedback(`Acertou! A letra ${targetLetter} ficou verde.`);
-          } else if (activeTargetRef.current && selectedLetter) {
-            setFeedback(`Essa não foi a letra certa. Tente a pose da letra ${targetLetter}.`);
-          }
-        }
-      }
-
-      setStatus('Câmera ativa e poses em análise');
-      setReady(true);
-    });
-
-    const camera = new Camera(video, {
-      onFrame: async () => {
-        await pose.send({ image: video });
-        await hands.send({ image: video });
-      },
-      width: 640,
-      height: 480,
-    });
-
-    camera.start().then(() => {
-      setStatus('Câmera iniciada. Posicione o corpo e acompanhe o jogo.');
-    }).catch(() => {
-      setStatus('Não foi possível abrir a câmera. Permita o acesso e recarregue a página.');
-    });
+    initializeCamera();
 
     return () => {
-      camera.stop();
-      pose.close();
-      hands.close();
+      cancelled = true;
+      if (camera) camera.stop();
+      if (pose) pose.close();
+      if (hands) hands.close();
     };
   }, []);
 
-  useEffect(() => {
-    if (!activeTarget) {
-      setFeedback('Parabéns! Você completou a frase.');
-    }
-  }, [activeTarget]);
-
-  const randomPhrase = () => {
-    const next = PHRASES[Math.floor(Math.random() * PHRASES.length)];
-    setPhrase(next);
+  const startNewGame = () => {
+    const nextWord = getRandomWord();
+    setSecretWord(nextWord);
+    setGuessLetters(Array(WORD_LENGTH).fill(''));
+    setGuesses([]);
+    setGuessResults([]);
+    setAttempts(0);
     setCurrentPosition(0);
-    setFeedback('Nova frase pronta. Use a pose para escolher a letra sugerida.');
-    lastPoseRef.current = null;
-    setScore(0);
+    setGameStatus('playing');
+    setSelectedLetter('A');
+    setFeedback('Nova palavra. Mova a mão para escolher a letra e faça polegar para cima para confirmar.');
+    confirmRef.current = false;
   };
+
+  const currentGuess = guessLetters.join('');
+  const rows = Array.from({ length: MAX_ATTEMPTS }, (_, rowIndex) => {
+    const isActive = rowIndex === attempts;
+    const guess = isActive ? currentGuess : guesses[rowIndex] || '';
+    const result = isActive ? [] : guessResults[rowIndex] || [];
+
+    return (
+      <div key={`row-${rowIndex}`} className={`guess-row ${isActive ? 'active' : ''}`}>
+        {Array.from({ length: WORD_LENGTH }, (_, index) => {
+          const letter = guess[index] || '';
+          const resultClass = result[index] || '';
+          return (
+            <span key={`${rowIndex}-${index}`} className={`letter-tile ${resultClass}`}>
+              {letter || (isActive ? ' ' : '')}
+            </span>
+          );
+        })}
+      </div>
+    );
+  });
 
   return (
     <main className="app-shell">
       <section className="panel hero">
         <p className="eyebrow">Jogo interativo</p>
         <h1>Tremo na Oficina</h1>
-        <p className="lead">Use a webcam para seguir a sequência de letras da frase e marcar cada acerto com verde.</p>
+        <p className="lead">Escolha cada letra com a câmera e confirme com um polegar para cima da outra mão.</p>
       </section>
 
       <section className="panel board">
@@ -276,49 +398,52 @@ export default function App() {
           <canvas ref={canvasRef} className="canvas-overlay" />
           <div className="badge-row">
             <span className={`chip ${ready ? 'ok' : ''}`}>{ready ? 'Webcam pronta' : 'Aguardando...'}</span>
-            <span className="chip">Acertos: {score}</span>
+            <span className="chip">Tentativas: {attempts}/{MAX_ATTEMPTS}</span>
           </div>
         </div>
 
         <aside className="info-card">
-          <h2>Desafio de letras</h2>
+          <h2>Termo com gestos</h2>
           <p>{status}</p>
           <p><strong>Pose detectada:</strong> {poseLabel}</p>
           <p className="status-line">{feedback}</p>
+          {cameraError ? <p className="camera-error">{cameraError}</p> : null}
 
-          <div className="phrase-box">
-            <span>Frase</span>
-            <div className="phrase-display">
-              {phrase.split('').map((char, index) => {
-                const isSpace = char === ' ';
-                return (
-                  <span
-                    key={`${char}-${index}`}
-                    className={`letter-tile ${isSpace ? 'space' : ''} ${completedIndexes.has(index) ? 'correct' : ''}`}
-                  >
-                    {isSpace ? '\u00A0' : char}
-                  </span>
-                );
-              })}
+          <div className="board-box">
+            <span>Palavra</span>
+            <div className="guess-board">
+              {rows}
             </div>
           </div>
 
-          <div className="suggestion-box">
-            <span>Letras sugeridas</span>
-            <div className="suggestion-row">
-              {suggestions.map((letter) => (
-                <span
-                  key={letter}
-                  className={`suggestion-chip ${completedLetters.includes(letter) ? 'correct' : ''} ${letter === activeTarget?.char ? 'active' : ''}`}
-                >
+          <div className="keyboard-box">
+            <span>Letra selecionada</span>
+            <div className="selected-letter">{selectedLetter}</div>
+            <div className="keyboard-row">
+              {KEYBOARD_ROWS[0].map((letter) => (
+                <span key={letter} className={`keyboard-key ${letter === selectedLetter ? 'active' : ''}`}>
+                  {letter}
+                </span>
+              ))}
+            </div>
+            <div className="keyboard-row">
+              {KEYBOARD_ROWS[1].map((letter) => (
+                <span key={letter} className={`keyboard-key ${letter === selectedLetter ? 'active' : ''}`}>
+                  {letter}
+                </span>
+              ))}
+            </div>
+            <div className="keyboard-row">
+              {KEYBOARD_ROWS[2].map((letter) => (
+                <span key={letter} className={`keyboard-key ${letter === selectedLetter ? 'active' : ''}`}>
                   {letter}
                 </span>
               ))}
             </div>
           </div>
 
-          <button type="button" onClick={randomPhrase}>Gerar outra frase</button>
-          <small>As poses selecionam as letras sugeridas; quando você acerta, a letra fica verde e a próxima aparece.</small>
+          <button type="button" onClick={startNewGame}>Nova palavra</button>
+          <small>Mova a sua mão para percorrer o teclado e use a outra mão com o gesto de polegar para cima para confirmar a letra.</small>
         </aside>
       </section>
     </main>
